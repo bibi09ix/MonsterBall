@@ -1,0 +1,19 @@
+name: MonsterBall
+version: 1.0.0
+main: com.github.bibi09ix.monsterball.MonsterBall
+api-version: 1.21
+description: モンスターボールを使ってエンティティを捕獲・召喚できるプラグイン
+commands:
+  restoredeleted:
+    description: 削除されたエンティティを復元する
+    permission: monsterball.restore
+  purgedeleted:
+    description: 削除履歴を完全削除する
+    permission: monsterball.purge
+permissions:
+  monsterball.restore:
+    description: 削除データを復元する権限
+    default: op
+  monsterball.purge:
+    description: 削除履歴を完全削除する権限
+    default: op
