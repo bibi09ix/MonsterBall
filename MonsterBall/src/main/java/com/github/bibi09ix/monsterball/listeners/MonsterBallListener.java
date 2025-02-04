@@ -3,6 +3,8 @@ package com.github.bibi09ix.monsterball.listeners;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.UUID;
 import java.util.logging.Logger;
 
 import org.bukkit.ChatColor;
@@ -30,11 +32,34 @@ public class MonsterBallListener implements Listener {
     private final DataManager dataManager;
     private final NamespacedKey monsterBallKey;
     private final Logger logger;
+    private final HashMap<UUID, Long> cooldowns = new HashMap<>();
 
     public MonsterBallListener(DataManager dataManager, NamespacedKey key, Logger logger) {
         this.dataManager = dataManager;
         this.monsterBallKey = key;
         this.logger = logger;
+    }
+    
+    /**
+     * 🔹 クールダウンチェック
+     */
+    private boolean isCooldown(Player player) {
+        UUID uuid = player.getUniqueId();
+        if (cooldowns.containsKey(uuid)) {
+            long lastTime = cooldowns.get(uuid);
+            if (System.currentTimeMillis() - lastTime < 3000) {
+                player.sendMessage(ChatColor.RED + "クールダウン中です！");
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * 🔹 クールダウンをセット
+     */
+    private void setCooldown(Player player) {
+        cooldowns.put(player.getUniqueId(), System.currentTimeMillis());
     }
 
     /**
@@ -43,8 +68,9 @@ public class MonsterBallListener implements Listener {
     @EventHandler
     public void onEntityCapture(PlayerInteractEntityEvent event) {
         Player player = event.getPlayer();
-        ItemStack item = player.getInventory().getItemInMainHand();
+        if (isCooldown(player)) return;
 
+        ItemStack item = player.getInventory().getItemInMainHand();
         if (isValidMonsterBall(item)) {
             Entity entity = event.getRightClicked();
             int entityID = getMonsterBallID(item);
@@ -72,6 +98,8 @@ public class MonsterBallListener implements Listener {
 
             // モンスターボールのツールチップ更新
             updateMonsterBallTooltip(item, entityID, entityName, captureTime);
+
+            setCooldown(player);
         }
     }
 
@@ -81,19 +109,15 @@ public class MonsterBallListener implements Listener {
     @EventHandler
     public void onPlayerUseMonsterBall(PlayerInteractEvent event) {
         Player player = event.getPlayer();
-        ItemStack item = player.getInventory().getItemInMainHand();
+        if (isCooldown(player)) return;
 
+        ItemStack item = player.getInventory().getItemInMainHand();
         if (event.getAction() == Action.RIGHT_CLICK_BLOCK) {
             Block block = event.getClickedBlock();
             if (block == null || !isValidMonsterBall(item)) return;
 
             int entityID = getMonsterBallID(item);
             logger.info("[MonsterBall] Attempting to summon entity with ID=" + entityID);
-
-            if (entityID == -1) {
-                player.sendMessage(ChatColor.RED + "無効なモンスターボールです！");
-                return;
-            }
 
             String entityType = dataManager.getEntityData(entityID);
             String nbtData = dataManager.getEntityNBT(entityID);
@@ -102,9 +126,10 @@ public class MonsterBallListener implements Listener {
                 player.getWorld().spawnParticle(Particle.CLOUD, player.getLocation(), 10);
                 Entity entity = player.getWorld().spawnEntity(player.getLocation(), org.bukkit.entity.EntityType.valueOf(entityType));
                 NBTUtil.restoreEntityNBT(entity, nbtData);
-                
+
                 // データ削除（召喚完了）
                 dataManager.deleteEntityData(entityID);
+                dataManager.reloadConfig(); // 🔹 修正: データ削除後、YAMLをリロード
                 player.sendMessage(ChatColor.YELLOW + "エンティティを召喚しました！");
 
                 // デバッグログ
@@ -112,6 +137,8 @@ public class MonsterBallListener implements Listener {
 
                 // モンスターボールを空にする（ツールチップとIDをクリア）
                 clearMonsterBall(item);
+
+                setCooldown(player);
             } else {
                 logger.warning("[MonsterBall] No entity data found for ID=" + entityID);
             }

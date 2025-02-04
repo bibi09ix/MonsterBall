@@ -2,8 +2,6 @@ package com.github.bibi09ix.monsterball.utils;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
 
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -13,7 +11,7 @@ public class DataManager {
     
     private final Plugin plugin;
     private final File dataFile;
-    private final FileConfiguration dataConfig;
+    private FileConfiguration dataConfig;
 
     public DataManager(Plugin plugin) {
         this.plugin = plugin;
@@ -41,26 +39,39 @@ public class DataManager {
     }
 
     public void saveEntityData(int entityID, String entityType, String nbtData) {
-        Map<String, String> entityData = new HashMap<>();
-        entityData.put("type", entityType);
-        entityData.put("nbt", nbtData);
-
-        dataConfig.set("entities." + entityID, entityData);
-        save();
+        dataConfig.set("entities." + entityID + ".type", entityType);
+        dataConfig.set("entities." + entityID + ".nbt", nbtData);
+        saveConfig();
     }
 
     public String getEntityData(int entityID) {
+        reloadConfig();
         return dataConfig.getString("entities." + entityID + ".type");
     }
 
     public String getEntityNBT(int entityID) {
+        reloadConfig();
         return dataConfig.getString("entities." + entityID + ".nbt");
     }
 
     public void deleteEntityData(int entityID) {
         dataConfig.set("entities." + entityID, null);
-        save();
+        saveConfig();
     }
+
+    public void reloadConfig() {
+        dataConfig = YamlConfiguration.loadConfiguration(dataFile);
+    }
+
+    public void saveConfig() {
+        try {
+            dataConfig.save(dataFile);
+        } catch (IOException e) {
+            plugin.getLogger().severe("Failed to save entity data!");
+            e.printStackTrace();
+        }
+    }
+
 
     private void save() {
         try {
