@@ -1,82 +1,111 @@
 package com.github.bibi09ix.monsterball;
 
-import org.bukkit.Bukkit;
+import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.RecipeChoice;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import com.github.bibi09ix.monsterball.listeners.EntityDespawnListener;
-import com.github.bibi09ix.monsterball.listeners.MonsterBallBackListener;
-import com.github.bibi09ix.monsterball.listeners.MonsterBallListener;
-import com.github.bibi09ix.monsterball.utils.DataManager;
-import com.github.bibi09ix.monsterball.utils.ItemManager;
+import com.github.bibi09ix.monsterball.inventory.MonsterBallBackInventoryManager;
+import com.github.bibi09ix.monsterball.listener.MonsterBallBackCraftListener;
+import com.github.bibi09ix.monsterball.listener.PlayerInteractEntityListener;
+import com.github.bibi09ix.monsterball.listener.PlayerInteractListener;
+import com.github.bibi09ix.monsterball.listener.ProjectileHitListener;
 
 public class MonsterBall extends JavaPlugin {
-    
+    private static MonsterBall instance;
     private DataManager dataManager;
-    private ItemManager itemManager;
-    private NamespacedKey monsterBallKey;
+    private CooldownManager cooldownManager;
+    private MonsterBallBackInventoryManager backInventoryManager;
+
+    public static MonsterBall getInstance() {
+        return instance;
+    }
 
     @Override
     public void onEnable() {
-        getLogger().info("MonsterBall Plugin has been enabled!");
+        instance = this;
+        getLogger().info("MonsterBall plugin enabled.");
 
-        this.dataManager = new DataManager(this);
-        this.itemManager = new ItemManager();
-        this.monsterBallKey = new NamespacedKey(this, "monster_ball_id");
+        dataManager = new DataManager(this);
+        dataManager.loadData();
+        cooldownManager = new CooldownManager();
+        backInventoryManager = new MonsterBallBackInventoryManager(this);
 
-        // レシピ登録
+        getServer().getPluginManager().registerEvents(new PlayerInteractListener(this), this);
+        getServer().getPluginManager().registerEvents(new PlayerInteractEntityListener(), this);
+        getServer().getPluginManager().registerEvents(new ProjectileHitListener(this), this);
+        getServer().getPluginManager().registerEvents(new MonsterBallBackCraftListener(), this);
+
         registerRecipes();
-
-        // イベントリスナー登録
-        getServer().getPluginManager().registerEvents(new MonsterBallListener(dataManager, monsterBallKey, getLogger()), this);
-        getServer().getPluginManager().registerEvents(new MonsterBallBackListener(dataManager), this);
-        getServer().getPluginManager().registerEvents(new EntityDespawnListener(dataManager), this);
-
-        // 設定ファイルの読み込み
-        saveDefaultConfig();
     }
 
     @Override
     public void onDisable() {
-        getLogger().info("MonsterBall Plugin has been disabled!");
+        dataManager.saveData();
+        getLogger().info("MonsterBall plugin disabled.");
     }
-
+    
     public DataManager getDataManager() {
         return dataManager;
     }
 
-    public ItemManager getItemManager() {
-        return itemManager;
+    public CooldownManager getCooldownManager() {
+        return cooldownManager;
     }
 
-    /**
-     * 🔹 クラフトレシピを登録
-     */
+    public MonsterBallBackInventoryManager getBackInventoryManager() {
+        return backInventoryManager;
+    }
+
     private void registerRecipes() {
-        // モンスターボールのレシピ
-    	int entityID = dataManager.getNextEntityID();
-    	ItemStack monsterBall = ItemManager.createMonsterBall(entityID, monsterBallKey);
-        NamespacedKey ballKey = new NamespacedKey(this, "monster_ball");
-        ShapedRecipe ballRecipe = new ShapedRecipe(ballKey, monsterBall);
-        ballRecipe.shape("GAG", "AOA", "GAG");
-        ballRecipe.setIngredient('G', org.bukkit.Material.GHAST_TEAR);
-        ballRecipe.setIngredient('A', org.bukkit.Material.AMETHYST_BLOCK);
-        ballRecipe.setIngredient('O', org.bukkit.Material.ENDER_PEARL);
-        Bukkit.addRecipe(ballRecipe);
+        // ★ モンスターボールのレシピ ★
+        // [GHAST_TEAR] [圧縮アメジストブロック] [GHAST_TEAR]
+        // [圧縮アメジストブロック] [ENDER_PEARL] [圧縮アメジストブロック]
+        // [GHAST_TEAR] [圧縮アメジストブロック] [GHAST_TEAR]
+        ShapedRecipe ballRecipe = new ShapedRecipe(new NamespacedKey(this, "monster_ball"),
+                CustomItemUtil.getMonsterBallItem(false, 0));
+        ballRecipe.shape("ABA", "BCB", "ABA");
+        ballRecipe.setIngredient('A', Material.GHAST_TEAR);
+        if (getServer().getPluginManager().getPlugin("CompressedAmethyst") != null) {
+            try {
+                Class<?> utilClass = Class.forName("com.github.bibi09ix.compressedamethyst.CompressedAmethystUtil");
+                java.lang.reflect.Method method = utilClass.getMethod("getCompressedAmethystBlock");
+                Object result = method.invoke(null);
+                if (result instanceof ItemStack) {
+                    ballRecipe.setIngredient('B', new RecipeChoice.ExactChoice((ItemStack) result));
+                } else {
+                    ballRecipe.setIngredient('B', Material.AMETHYST_BLOCK);
+                    getLogger().warning("CompressedAmethystUtil.getCompressedAmethystBlock() did not return an ItemStack. Using AMETHYST_BLOCK.");
+                }
+            } catch (Exception e) {
+                ballRecipe.setIngredient('B', Material.AMETHYST_BLOCK);
+                getLogger().warning("Error accessing CompressedAmethystUtil: " + e.getMessage() + ". Using AMETHYST_BLOCK.");
+            }
+        } else {
+            ballRecipe.setIngredient('B', Material.AMETHYST_BLOCK);
+            getLogger().warning("CompressedAmethyst plugin not found, using AMETHYST_BLOCK.");
+        }
+        ballRecipe.setIngredient('C', Material.ENDER_PEARL);
+        getServer().addRecipe(ballRecipe);
+        getLogger().info("Monster Ball recipe registered.");
 
-        // モンスターボールバックのレシピ
-        ItemStack monsterBallBack = ItemManager.createMonsterBallBack();
+        // モンスターボールバッグのレシピ
+        // [GHAST_TEAR] [ENDER_CHEST] [GHAST_TEAR]
+        // [CHEST]      [SADDLE]      [CHEST]
+        // [GHAST_TEAR] [ENDER_CHEST] [GHAST_TEAR]
+
+        String invUUID = MonsterBallBackInventoryManager.createNewInventory();
+        ItemStack backItem = CustomItemUtil.getMonsterBallBackItem(invUUID);
+
         NamespacedKey backKey = new NamespacedKey(this, "monster_ball_back");
-        ShapedRecipe backRecipe = new ShapedRecipe(backKey, monsterBallBack);
-        backRecipe.shape("GEG", "CBC", "GEG");
-        backRecipe.setIngredient('G', org.bukkit.Material.GHAST_TEAR);
-        backRecipe.setIngredient('E', org.bukkit.Material.ENDER_CHEST);
-        backRecipe.setIngredient('C', org.bukkit.Material.CHEST);
-        backRecipe.setIngredient('B', org.bukkit.Material.BUNDLE);
-        Bukkit.addRecipe(backRecipe);
-
-        getLogger().info("Recipes have been registered!");
+        ShapedRecipe backRecipe = new ShapedRecipe(backKey, backItem);
+        backRecipe.shape("ADA", "BCB", "ADA");
+        backRecipe.setIngredient('A', Material.GHAST_TEAR);
+        backRecipe.setIngredient('D', Material.ENDER_CHEST);
+        backRecipe.setIngredient('B', Material.CHEST);
+        backRecipe.setIngredient('C', Material.SADDLE); 
+        getServer().addRecipe(backRecipe);
     }
 }
